@@ -1,0 +1,25 @@
+version = 1
+revision = 3
+requires-python = ">=3.10"
+
+[manifest]
+members = [
+    "oar",
+    "oar-tui",
+]
+
+[[package]]
+name = "oar"
+version = "0.0.1"
+source = { editable = "packages/oar" }
+dependencies = [
+    { name = "oar-tui" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "oar-tui", editable = "packages/oar-tui" }]
+
+[[package]]
+name = "oar-tui"
+version = "0.0.1"
+source = { editable = "packages/oar-tui" }
