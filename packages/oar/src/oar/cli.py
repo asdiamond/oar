@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from . import __version__
-from .agent import Agent
+from .agent import DEFAULT_MODEL, run
 from .events import TextDelta, ToolCall, ToolResult
 
 DIM = "\033[2m"
@@ -25,10 +25,8 @@ def main() -> int:
     parser.add_argument("--version", action="version", version=f"oar {__version__}")
     args = parser.parse_args()
 
-    agent = Agent(model=args.model) if args.model else Agent()
-
     dim = sys.stdout.isatty()
-    for event in agent.run(args.prompt):
+    for event in run(args.prompt, model=args.model or DEFAULT_MODEL):
         match event:
             case TextDelta(text):
                 sys.stdout.write(text)

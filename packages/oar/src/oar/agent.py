@@ -25,41 +25,39 @@ DEFAULT_MODEL = os.environ.get("OAR_MODEL", "gpt-5.1")
 INSTRUCTIONS = (Path(__file__).parent / "system_prompt.md").read_text()
 
 
-class Agent:
-    def __init__(self, model: str = DEFAULT_MODEL, session: Session | None = None):
-        self.client = OpenAI()
-        self.model = model
-        self.instructions = INSTRUCTIONS.format(cwd=Path.cwd(), platform=platform.platform())
-        self.items: list[ResponseInputItemParam] = []
-        self.session = session or Session()
+def run(
+    user_text: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    client: OpenAI | None = None,
+    session: Session | None = None,
+    items: list[ResponseInputItemParam] | None = None,
+) -> Generator[Event]:
+    """Run the agent on one user message, yielding events until the model stops calling tools.
 
-    def run(self, user_text: str) -> Generator[Event]:
-        self._append({"role": "user", "content": user_text})
-        while True:
-            response = yield from self._stream_turn()
-            calls = self._record(response)
-            if not calls:
-                return
-            yield from self._execute(calls)
+    `items` is the conversation history; pass the same list across calls to continue
+    a conversation. It is mutated in place and mirrored to `session`.
+    """
+    client = client or OpenAI()
+    session = session or Session()
+    items = items if items is not None else []
+    instructions = INSTRUCTIONS.format(cwd=Path.cwd(), platform=platform.platform())
 
-    def _append(self, item: ResponseInputItemParam | ResponseOutputItem) -> None:
-        """The single write path for the transcript: in-memory history + session file.
-
-        SDK output objects are valid input items at runtime; the stubs only admit
-        TypedDicts, hence the cast.
-        """
-        self.items.append(cast(ResponseInputItemParam, item))
+    def append(item: ResponseInputItemParam | ResponseOutputItem) -> None:
+        # single write path: in-memory history + session file. SDK output objects are
+        # valid input items at runtime; the stubs only admit TypedDicts, hence the cast.
+        items.append(cast(ResponseInputItemParam, item))
         data = item.model_dump(mode="json") if isinstance(item, BaseModel) else item
         kind = data.get("type") or data.get("role") or "item"
-        self.session.append(str(kind), item=data)
+        session.append(str(kind), item=data)
 
-    def _stream_turn(self) -> Generator[TextDelta, None, Response]:
-        """One API call. Yields TextDeltas as they arrive; returns the completed Response."""
-        with self.client.responses.stream(
-            model=self.model,
-            instructions=self.instructions,
+    def stream_turn() -> Generator[TextDelta, None, Response]:
+        # one API call: yield TextDeltas as they arrive, return the completed Response
+        with client.responses.stream(
+            model=model,
+            instructions=instructions,
             tools=DEFINITIONS,
-            input=self.items,
+            input=items,
             store=False,
         ) as stream:
             for event in stream:
@@ -67,13 +65,13 @@ class Agent:
                     yield TextDelta(event.delta)
             return stream.get_final_response()
 
-    def _record(self, response: Response) -> list[ResponseFunctionToolCall]:
-        """Record every output item (reasoning included); return the function calls."""
+    def record(response: Response) -> list[ResponseFunctionToolCall]:
+        # record every output item (reasoning included); return the function calls
         for item in response.output:
-            self._append(item)
+            append(item)
         return [i for i in response.output if i.type == "function_call"]
 
-    def _execute(self, calls: Sequence[ResponseFunctionToolCall]) -> Generator[Event]:
+    def execute(calls: Sequence[ResponseFunctionToolCall]) -> Generator[Event]:
         for call in calls:
             args: dict[str, object] = json.loads(call.arguments)
             yield ToolCall(call.call_id, call.name, args)
@@ -82,6 +80,12 @@ class Agent:
             except Exception as e:
                 output = f"Error: {e}"
             yield ToolResult(call.call_id, call.name, output)
-            self._append(
-                {"type": "function_call_output", "call_id": call.call_id, "output": output}
-            )
+            append({"type": "function_call_output", "call_id": call.call_id, "output": output})
+
+    append({"role": "user", "content": user_text})
+    while True:
+        response = yield from stream_turn()
+        calls = record(response)
+        if not calls:
+            return
+        yield from execute(calls)
