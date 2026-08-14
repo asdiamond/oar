@@ -1,2 +1,7 @@
 [tool.uv.workspace]
 members = ["packages/*"]
+
+[tool.pyright]
+pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"

@@ -12,10 +12,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
 ]
-dependencies = ["oar-tui"]
+dependencies = ["openai>=1.60"]
 
-[tool.uv.sources]
-oar-tui = { workspace = true }
+[project.scripts]
+oar = "oar.cli:main"
 
 [project.urls]
 Homepage = "https://oar.run"
