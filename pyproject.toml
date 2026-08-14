@@ -5,3 +5,8 @@ members = ["packages/*"]
 pythonVersion = "3.14"
 venvPath = "."
 venv = ".venv"
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.71",
+]

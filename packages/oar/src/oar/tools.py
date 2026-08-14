@@ -1,7 +1,10 @@
 """The four tools: read, write, edit, bash."""
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+
+from openai.types.responses import FunctionToolParam
 
 MAX_OUTPUT = 30_000
 BASH_TIMEOUT = 120
@@ -49,54 +52,51 @@ def bash(command: str) -> str:
     return _truncate(output) or "(no output)"
 
 
-DISPATCH = {"read": read, "write": write, "edit": edit, "bash": bash}
+DISPATCH: dict[str, Callable[..., str]] = {"read": read, "write": write, "edit": edit, "bash": bash}
 
-DEFINITIONS = [
-    {
+
+def _tool(name: str, description: str, properties: dict[str, object]) -> FunctionToolParam:
+    return {
         "type": "function",
-        "name": "read",
-        "description": "Read a file and return its contents.",
+        "name": name,
+        "description": description,
+        "strict": True,
         "parameters": {
             "type": "object",
-            "properties": {"path": {"type": "string", "description": "Path to the file"}},
-            "required": ["path"],
+            "properties": properties,
+            "required": list(properties),
+            "additionalProperties": False,
         },
-    },
-    {
-        "type": "function",
-        "name": "write",
-        "description": "Write content to a file, creating it (and parent directories) if needed, overwriting if it exists.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Path to the file"},
-                "content": {"type": "string", "description": "Full file content"},
-            },
-            "required": ["path", "content"],
+    }
+
+
+DEFINITIONS: list[FunctionToolParam] = [
+    _tool(
+        "read",
+        "Read a file and return its contents.",
+        {"path": {"type": "string", "description": "Path to the file"}},
+    ),
+    _tool(
+        "write",
+        "Write content to a file, creating it (and parent directories) if needed, overwriting if it exists.",
+        {
+            "path": {"type": "string", "description": "Path to the file"},
+            "content": {"type": "string", "description": "Full file content"},
         },
-    },
-    {
-        "type": "function",
-        "name": "edit",
-        "description": "Replace an exact string in a file. Fails if the string is missing or appears more than once — include enough surrounding context to make it unique.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Path to the file"},
-                "old_string": {"type": "string", "description": "Exact text to replace"},
-                "new_string": {"type": "string", "description": "Replacement text"},
-            },
-            "required": ["path", "old_string", "new_string"],
+    ),
+    _tool(
+        "edit",
+        "Replace an exact string in a file. Fails if the string is missing or appears more than once — include enough surrounding context to make it unique.",
+        {
+            "path": {"type": "string", "description": "Path to the file"},
+            "old_string": {"type": "string", "description": "Exact text to replace"},
+            "new_string": {"type": "string", "description": "Replacement text"},
         },
-    },
-    {
-        "type": "function",
-        "name": "bash",
-        "description": f"Run a shell command and return its output. Times out after {BASH_TIMEOUT}s. Use this for searching, listing, git, tests, and everything else.",
-        "parameters": {
-            "type": "object",
-            "properties": {"command": {"type": "string", "description": "The command to run"}},
-            "required": ["command"],
-        },
-    },
+    ),
+    _tool(
+        "bash",
+        f"Run a shell command and return its output. Times out after {BASH_TIMEOUT}s. "
+        "Use this for searching, listing, git, tests, and everything else.",
+        {"command": {"type": "string", "description": "The command to run"}},
+    ),
 ]

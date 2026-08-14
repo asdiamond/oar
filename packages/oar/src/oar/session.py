@@ -14,8 +14,8 @@ class Session:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._last_id: str | None = None
 
-    def append(self, type: str, **data) -> None:
-        entry = {
+    def append(self, type: str, **data: object) -> None:
+        entry: dict[str, object] = {
             "id": str(uuid.uuid7()),
             "parentId": self._last_id,
             "ts": datetime.now(timezone.utc).isoformat(),

@@ -3,10 +3,18 @@
 import json
 import os
 import platform
-from collections.abc import Iterator
+from collections.abc import Generator, Sequence
 from pathlib import Path
+from typing import cast
 
 from openai import OpenAI
+from pydantic import BaseModel
+from openai.types.responses import (
+    Response,
+    ResponseFunctionToolCall,
+    ResponseOutputItem,
+)
+from openai.types.responses.response_input_param import ResponseInputItemParam
 
 from .events import Event, TextDelta, ToolCall, ToolResult
 from .session import Session
@@ -22,10 +30,10 @@ class Agent:
         self.client = OpenAI()
         self.model = model
         self.instructions = INSTRUCTIONS.format(cwd=Path.cwd(), platform=platform.platform())
-        self.items: list = []
+        self.items: list[ResponseInputItemParam] = []
         self.session = session or Session()
 
-    def run(self, user_text: str) -> Iterator[Event]:
+    def run(self, user_text: str) -> Generator[Event]:
         self._append({"role": "user", "content": user_text})
         while True:
             response = yield from self._stream_turn()
@@ -34,13 +42,18 @@ class Agent:
                 return
             yield from self._execute(calls)
 
-    def _append(self, item) -> None:
-        """The single write path for the transcript: in-memory history + session file."""
-        self.items.append(item)
-        data = item if isinstance(item, dict) else item.model_dump(mode="json")
-        self.session.append(data.get("type") or data.get("role"), item=data)
+    def _append(self, item: ResponseInputItemParam | ResponseOutputItem) -> None:
+        """The single write path for the transcript: in-memory history + session file.
 
-    def _stream_turn(self):
+        SDK output objects are valid input items at runtime; the stubs only admit
+        TypedDicts, hence the cast.
+        """
+        self.items.append(cast(ResponseInputItemParam, item))
+        data = item.model_dump(mode="json") if isinstance(item, BaseModel) else item
+        kind = data.get("type") or data.get("role") or "item"
+        self.session.append(str(kind), item=data)
+
+    def _stream_turn(self) -> Generator[TextDelta, None, Response]:
         """One API call. Yields TextDeltas as they arrive; returns the completed Response."""
         with self.client.responses.stream(
             model=self.model,
@@ -54,15 +67,15 @@ class Agent:
                     yield TextDelta(event.delta)
             return stream.get_final_response()
 
-    def _record(self, response) -> list:
+    def _record(self, response: Response) -> list[ResponseFunctionToolCall]:
         """Record every output item (reasoning included); return the function calls."""
         for item in response.output:
             self._append(item)
         return [i for i in response.output if i.type == "function_call"]
 
-    def _execute(self, calls) -> Iterator[Event]:
+    def _execute(self, calls: Sequence[ResponseFunctionToolCall]) -> Generator[Event]:
         for call in calls:
-            args = json.loads(call.arguments)
+            args: dict[str, object] = json.loads(call.arguments)
             yield ToolCall(call.call_id, call.name, args)
             try:
                 output = DISPATCH[call.name](**args)

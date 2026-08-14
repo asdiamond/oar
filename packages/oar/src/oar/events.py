@@ -3,23 +3,23 @@
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TextDelta:
     text: str
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ToolCall:
     call_id: str
     name: str
-    arguments: dict
+    arguments: dict[str, object]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ToolResult:
     call_id: str
     name: str
     output: str
 
 
-Event = TextDelta | ToolCall | ToolResult
+type Event = TextDelta | ToolCall | ToolResult
