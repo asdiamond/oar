@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "A minimal terminal UI library: native scrollback, differential rendering, no framework."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 authors = [{ name = "Aleksandr Diamond", email = "diamondaleksandr@gmail.com" }]
 keywords = ["tui", "terminal", "ansi", "cli"]
 classifiers = [

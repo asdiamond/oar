@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "A bare-metal coding harness for the OpenAI Responses API. No bells, no whistles."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 authors = [{ name = "Aleksandr Diamond", email = "diamondaleksandr@gmail.com" }]
 keywords = ["openai", "responses-api", "agent", "harness", "llm"]
 classifiers = [
