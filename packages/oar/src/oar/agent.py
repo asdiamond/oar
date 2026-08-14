@@ -3,17 +3,12 @@
 import json
 import os
 import platform
-from collections.abc import Generator, Sequence
+from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
 from openai import OpenAI
-from pydantic import BaseModel
-from openai.types.responses import (
-    Response,
-    ResponseFunctionToolCall,
-    ResponseOutputItem,
-)
+from openai.types.responses import ResponseFunctionToolCall
 from openai.types.responses.response_input_param import ResponseInputItemParam
 
 from .events import Event, TextDelta, ToolCall, ToolResult
@@ -43,16 +38,11 @@ def run(
     items = items if items is not None else []
     instructions = INSTRUCTIONS.format(cwd=Path.cwd(), platform=platform.platform())
 
-    def append(item: ResponseInputItemParam | ResponseOutputItem) -> None:
-        # single write path: in-memory history + session file. SDK output objects are
-        # valid input items at runtime; the stubs only admit TypedDicts, hence the cast.
-        items.append(cast(ResponseInputItemParam, item))
-        data = item.model_dump(mode="json") if isinstance(item, BaseModel) else item
-        kind = data.get("type") or data.get("role") or "item"
-        session.append(str(kind), item=data)
+    items.append({"role": "user", "content": user_text})
+    session.append("user", item={"role": "user", "content": user_text})
 
-    def stream_turn() -> Generator[TextDelta, None, Response]:
-        # one API call: yield TextDeltas as they arrive, return the completed Response
+    while True:
+        # one API call: yield text deltas as they arrive, then take the completed response
         with client.responses.stream(
             model=model,
             instructions=instructions,
@@ -63,15 +53,23 @@ def run(
             for event in stream:
                 if event.type == "response.output_text.delta":
                     yield TextDelta(event.delta)
-            return stream.get_final_response()
+            response = stream.get_final_response()
 
-    def record(response: Response) -> list[ResponseFunctionToolCall]:
-        # record every output item (reasoning included); return the function calls
+        # record every output item (reasoning included) into history + session, and
+        # collect the function calls. SDK output objects are valid input items at
+        # runtime; the stubs only admit TypedDicts, hence the cast.
+        calls: list[ResponseFunctionToolCall] = []
         for item in response.output:
-            append(item)
-        return [i for i in response.output if i.type == "function_call"]
+            items.append(cast(ResponseInputItemParam, item))
+            data = item.model_dump(mode="json")
+            session.append(str(data.get("type") or "item"), item=data)
+            if item.type == "function_call":
+                calls.append(item)
 
-    def execute(calls: Sequence[ResponseFunctionToolCall]) -> Generator[Event]:
+        if not calls:
+            return
+
+        # execute each call and feed its output back for the next turn
         for call in calls:
             args: dict[str, object] = json.loads(call.arguments)
             yield ToolCall(call.call_id, call.name, args)
@@ -80,12 +78,10 @@ def run(
             except Exception as e:
                 output = f"Error: {e}"
             yield ToolResult(call.call_id, call.name, output)
-            append({"type": "function_call_output", "call_id": call.call_id, "output": output})
-
-    append({"role": "user", "content": user_text})
-    while True:
-        response = yield from stream_turn()
-        calls = record(response)
-        if not calls:
-            return
-        yield from execute(calls)
+            result: ResponseInputItemParam = {
+                "type": "function_call_output",
+                "call_id": call.call_id,
+                "output": output,
+            }
+            items.append(result)
+            session.append("function_call_output", item=result)
